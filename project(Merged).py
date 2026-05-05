@@ -584,7 +584,8 @@ def update_ball():
             ball['pos'][i] = math.copysign(lim, ball['pos'][i])
 
     # goal detection
-    check_goal()
+    #check_goal()
+    check_goal_with_celebration()
 
 def check_goal():
     global game_state
@@ -640,6 +641,8 @@ def show_screen():
     draw_ball()
     draw_minimap()
     draw_hud()
+    draw_enemy_car()
+    draw_dynamic_light_effect()
     glutSwapBuffers()
 
 # ─── INPUT HANDLERS ────────────────────────────────────────────────────────────
@@ -687,8 +690,273 @@ def idle():
     car_ball_collision()
     check_nitro_pickups()
     manage_particles_drift()
+    update_enemy_ai()
+    enemy_ball_collision()
+    update_dynamic_light()
+    update_goal_celebration()
     glutPostRedisplay()
 
+
+
+
+
+
+
+
+enemy_car = {
+    'pos': [0, 400, 0],
+    'vx': 0,
+    'vy': 0,
+    'angle': -90,
+    'acceleration': 0.015,
+    'friction': 0.97,
+    'max_speed': 3
+}
+
+dynamic_light_angle = 0
+
+goal_message_timer = 0
+goal_flash_timer = 0
+camera_shake_timer = 0
+
+
+# ─── SAZZAD FEATURE 1: ENEMY AI ───────────────────────────────────────────────
+
+# Enemy car follows the ball
+def update_enemy_ai():
+    # 1. Find the distance to the ball
+    dx = ball['pos'][0] - enemy_car['pos'][0]
+    dy = ball['pos'][1] - enemy_car['pos'][1]
+    dist = math.hypot(dx, dy)
+
+    # 2. Always look exactly at the ball
+    target_angle = math.degrees(math.atan2(dy, dx))
+    enemy_car['angle'] = target_angle
+    angle_r = math.radians(target_angle)
+
+    # 3. Direct Movement (No sliding, no friction, no overshooting)
+    # It just moves forward at a constant speed of 3.5
+    enemy_car['pos'][0] += math.cos(angle_r) * 0.15
+    enemy_car['pos'][1] += math.sin(angle_r) * 0.15
+
+    # 4. Keep enemy inside the arena walls
+    enemy_car['pos'][0] = max(-GRID_LENGTH + 25, min(GRID_LENGTH - 25, enemy_car['pos'][0]))
+    enemy_car['pos'][1] = max(-GRID_LENGTH + 25, min(GRID_LENGTH - 25, enemy_car['pos'][1]))
+
+
+# Draw enemy car
+def draw_enemy_car():
+    glPushMatrix()
+    glTranslatef(enemy_car['pos'][0], enemy_car['pos'][1], 15)
+    glRotatef(enemy_car['angle'] - 90, 0, 0, 1)
+
+    # enemy body
+    glColor3f(0.9, 0.1, 0.1)
+    glPushMatrix()
+    glScalef(40, 60, 20)
+    glutSolidCube(1)
+    glPopMatrix()
+
+    # enemy cabin
+    glColor3f(0.4, 0.0, 0.0)
+    glPushMatrix()
+    glTranslatef(0, 5, 17)
+    glScalef(28, 28, 14)
+    glutSolidCube(1)
+    glPopMatrix()
+
+    # enemy window
+    glColor3f(1.0, 0.7, 0.7)
+    glPushMatrix()
+    glTranslatef(0, 6, 22)
+    glScalef(22, 18, 4)
+    glutSolidCube(1)
+    glPopMatrix()
+
+    # enemy wheels
+    glColor3f(0.1, 0.1, 0.1)
+    for wx, wy in [(-22, 20), (22, 20), (-22, -20), (22, -20)]:
+        glPushMatrix()
+        glTranslatef(wx, wy, -8)
+        glRotatef(90, 0, 1, 0)
+        draw_cylinder_z(9, 9, 8, 10, 2)
+        glPopMatrix()
+
+    glPopMatrix()
+
+
+# Enemy car hits the ball
+def enemy_ball_collision():
+    dx = ball['pos'][0] - enemy_car['pos'][0]
+    dy = ball['pos'][1] - enemy_car['pos'][1]
+
+    dist = math.hypot(dx, dy)
+    hit_r = ball['radius'] + 30 # Collision radius
+
+    if dist < hit_r and dist > 0:
+        # Calculate the push angle
+        nx = dx / dist
+        ny = dy / dist
+
+        # Hardcode a massive hit speed so it always smashes the ball away
+        impact_power = 6 
+
+        ball['vel'][0] = nx * impact_power * 0.3
+        ball['vel'][1] = ny * impact_power * 0.3
+        ball['vel'][2] = 2 # Pop it into the air
+
+
+# ─── SAZZAD FEATURE 2: DYNAMIC LIGHTING EFFECT ────────────────────────────────
+# Fake dynamic lighting using normal shapes only.
+# No glLightfv, no GL_LIGHTING, no GLUT time function.
+
+# Moves the fake light around the arena
+def update_dynamic_light():
+    global dynamic_light_angle
+
+    dynamic_light_angle += 0.05
+
+    if dynamic_light_angle >= 360:
+        dynamic_light_angle = 0
+
+
+# Draws fake moving light effect
+def draw_dynamic_light_effect():
+    lx = math.cos(math.radians(dynamic_light_angle)) * 350
+    ly = math.sin(math.radians(dynamic_light_angle)) * 350
+
+    # bright light orb
+    glPushMatrix()
+    glTranslatef(lx, ly, 180)
+    glColor3f(1.0, 1.0, 0.2)
+    gluSphere(gluNewQuadric(), 18, 12, 12)
+    glPopMatrix()
+
+    # outer glow orb
+    glPushMatrix()
+    glTranslatef(lx, ly, 175)
+    glColor3f(1.0, 0.6, 0.0)
+    gluSphere(gluNewQuadric(), 28, 12, 12)
+    glPopMatrix()
+
+    # light patch on the ground
+    glPushMatrix()
+    glTranslatef(lx, ly, 2)
+    glColor3f(1.0, 0.8, 0.1)
+    glScalef(70, 70, 1)
+    glutSolidCube(1)
+    glPopMatrix()
+
+
+# ─── SAZZAD FEATURE 3: GOAL CELEBRATION EFFECT ────────────────────────────────
+
+# Camera shake during celebration
+def setup_camera_with_goal_shake():
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    gluPerspective(60, 1.25, 1, 3000)
+
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+
+    cx, cy = car['pos'][0], car['pos'][1]
+
+    angle_r = math.radians(car['angle'])
+    cam_dist = 350
+
+    shake_x = 0
+    shake_y = 0
+
+    if camera_shake_timer > 0:
+        shake_x = random.randint(-8, 8)
+        shake_y = random.randint(-8, 8)
+
+    cam_x = cx - math.cos(angle_r) * cam_dist + shake_x
+    cam_y = cy - math.sin(angle_r) * cam_dist + shake_y
+
+    gluLookAt(
+        cam_x, cam_y, 280,
+        cx, cy, 0,
+        0, 0, 1
+    )
+
+
+# When the ball goes inside the goal
+def check_goal_with_celebration():
+    global game_state
+    global goal_message_timer, goal_flash_timer, camera_shake_timer
+
+    if goal_message_timer > 0:
+        return
+
+    if abs(ball['pos'][0]) < 100:
+        if ball['pos'][1] > GRID_LENGTH - 25:
+            score[0] += 1
+
+            goal_message_timer = 120
+            goal_flash_timer = 120
+            camera_shake_timer = 40
+
+            reset_ball()
+
+        elif ball['pos'][1] < -(GRID_LENGTH - 25):
+            score[1] += 1
+
+            goal_message_timer = 120
+            goal_flash_timer = 120
+            camera_shake_timer = 40
+
+            reset_ball()
+
+
+# How long the celebration stays active
+def update_goal_celebration():
+    global goal_message_timer, goal_flash_timer, camera_shake_timer
+
+    if goal_message_timer > 0:
+        goal_message_timer -= 1
+
+    if goal_flash_timer > 0:
+        goal_flash_timer -= 1
+
+    if camera_shake_timer > 0:
+        camera_shake_timer -= 1
+
+
+# Goal posts flash after scoring
+def draw_goal_posts_with_flash():
+    for sign in [1, -1]:
+        if goal_flash_timer > 0 and goal_flash_timer % 20 < 10:
+            glColor3f(1.0, 0.0, 0.0)
+        else:
+            glColor3f(*theme['goal'])
+
+        glPushMatrix()
+        glTranslatef(0, sign * GRID_LENGTH, 50)
+        glScalef(200, 8, 100)
+        glutSolidCube(1)
+        glPopMatrix()
+
+        for px in [-100, 100]:
+            glPushMatrix()
+            glTranslatef(px, sign * GRID_LENGTH, 50)
+            glScalef(8, 8, 110)
+            glutSolidCube(1)
+            glPopMatrix()
+
+
+# Big GOAL text during celebration
+def draw_goal_celebration_text():
+    if goal_message_timer > 0:
+        glColor3f(1.0, 1.0, 0.0)
+        draw_text(455, 430, "GOAL!")
+
+        glColor3f(1.0, 1.0, 1.0)
+        draw_text(435, 405, "GET READY!")
+        
+        
+        
+        
 # ─── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
     glutInit()
