@@ -4,23 +4,97 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import math
 
-# ─── GLOBALS ───────────────────────────────────────────────────────────────────
+# ─── GLOBALS(NILOY)───────────────────────────────────────────────────────────────────
+#Niloy Features:Nitro,Templlate,momentum drift,gravity jump,particle system,sweeper walls
+particles=[]
+#Niloy Feature 4
+powerups={
+    'active':False,
+    'pos':[0,0,15],
+    'rot':0,
+    'timer':0
+}
+def update_powerup():
+    if not powerups['active']:
+        powerups['timer']+=1
+        if powerups['timer']>500:
+            powerups['active']=True
+            powerups['pos'][0]=random.random(-400,400)
+            powerups['pos'][1]=random.random(-400,400)
+            
+sweeper=[
+    {'base_x':0,"y":200,'offset':0,"dir":1},
+    {'base_x':0,"y":-200,'offset':0,"dir":-1},
+]
 GRID_LENGTH   = 500
 score         = [0, 0]
 game_state    = "PLAYING"
 random_seed   = 12345
 arena_objects = []
 
+#Niloy feature 3
+def update_sweeper():
+    global ball
+    for s in sweeper:
+        s['offset']+=0.5*s['dir']
+        if s['offset']>250:
+            s['dir']=-1
+        elif s['offset']<-250:
+            s['dir']=1
+        x=s['base_x']+s['offset']
+        dist=math.hypot(ball['pos'][0]-x,ball['pos'][1]-s['y'])
+        if dist<60:
+            ball['vel'][0]=ball['pos'][0]*0.02
+            ball['vel'][1]=ball['pos'][1]*0.02
+            ball['vel'][2]=5
+def draw_sweeper():
+    glColor3f(1,0.5,0)
+    for s in sweeper:
+        glPushMatrix()
+        glTranslatef(s['base_x']+s['offset'],s['y'],20)
+        glScalef(120,20,40)
+        glutSolidCube(1)
+        glPopMatrix()
+#Niloy Feature 1
+def manage_particles_drift():
+    global particles
+    curr_speed=math.hypot(car['vx'],car['vy'])
+    if curr_speed>0.1:
+        #move_angle=math.degrees()
+        car_a=math.radians(car['angle'])
+        car_x=car['pos'][0]-(math.cos(car_a)*25)
+        car_y=car['pos'][1]-(math.sin(car_a)*25)
+        particles.append({
+            'pos':[car_x,car_y,5],
+            'vel':[random.uniform(-0.1,1),random.uniform(-0.1,1),random.uniform(0.5,1)],
+            'life':1
+        })
+    for p in particles[:]:
+        p['pos'][0]+=p['vel'][0]
+        p['pos'][1]+=p['vel'][1]
+        p['pos'][2]+=p['vel'][2]
+        p['life']-=0.05
+        if p['life']<=0:
+            particles.remove(p)
+def draw_particle():
+    for p in particles:
+        glPushMatrix()
+        glTranslatef(p['pos'][0],p['pos'][1],p['pos'][2])
+        darkness=0.6*p['life']
+        glColor3f(darkness,darkness,darkness)
+        glutSolidCube(4)
+        glPopMatrix()
 car = {
     'pos':          [0, -400, 0],
     'velocity':     0,
-    'acceleration': 0.2,
+    'acceleration': 0.005,
     'friction':     0.98,
-    'nitro':        100,        # current nitro %
+    'nitro':        0,        # current nitro %
     'nitro_max':    100,
     'angle':        90,
     'vx':           0,          # world-space velocity components
     'vy':           0,
+    'vz':0,
     'using_nitro':  False,
 }
 
@@ -50,11 +124,11 @@ map_themes = [
     {'name': 'Toxic Swamp',   'field': [(0.05,0.15,0.03),(0.07,0.18,0.04)],
      'wall': (0.2,0.35,0.05), 'goal': (0.5,1.0,0.1),  'car': (0.8,0.0,0.8)},
 ]
-current_theme = 0
+current_theme = random.randint(0,2)#niloy
 theme = map_themes[current_theme]
 
 # ─── INPUT ─────────────────────────────────────────────────────────────────────
-keys = {'w': False, 's': False, 'a': False, 'd': False, 'space': False}
+keys = {'w': False, 's': False, 'a': False, 'd': False, ' ': False}
 
 # ─── CAMERA ────────────────────────────────────────────────────────────────────
 def setup_camera():
@@ -217,7 +291,7 @@ def draw_nitro_bottles():
 def draw_car():
     t = theme
     glPushMatrix()
-    glTranslatef(car['pos'][0], car['pos'][1], 15)
+    glTranslatef(car['pos'][0], car['pos'][1], 15+car['pos'][2])
     glRotatef(car['angle'] - 90, 0, 0, 1)
 
     # exhaust flames when nitro active
@@ -451,10 +525,18 @@ def draw_text(x, y, text):
 # ─── PHYSICS ───────────────────────────────────────────────────────────────────
 def update_car():
     global game_state
+    #Niloy feature 2
+    car['pos'][2]+=car['vz']
+    if car['pos'][2]>0:
+        car['vz']-=0.05
+    else:
+        car['pos'][2]=0
+        car['vz']=0
     angle_r = math.radians(car['angle'])
 
     # nitro modifier
-    using = keys['space'] and car['nitro'] > 0
+    #Niloy fix
+    using = keys[' '] and car['nitro'] > 0
     car['using_nitro'] = using
     boost = NITRO_BOOST_MUL if using else 1.0
     if using:
@@ -467,9 +549,9 @@ def update_car():
         car['vx'] -= math.cos(angle_r) * car['acceleration'] * 0.6
         car['vy'] -= math.sin(angle_r) * car['acceleration'] * 0.6
     if keys['a']:
-        car['angle'] += 3
+        car['angle'] += 0.3#niloy
     if keys['d']:
-        car['angle'] -= 3
+        car['angle'] -= 0.3
 
     car['vx'] *= car['friction']
     car['vy'] *= car['friction']
@@ -552,6 +634,8 @@ def show_screen():
     glLoadIdentity()
     setup_camera()
     draw_arena()
+    draw_sweeper()
+    draw_particle()
     draw_car()
     draw_ball()
     draw_minimap()
@@ -562,6 +646,7 @@ def show_screen():
 def keyboard_down(key, x, y):
     global current_theme, theme, random_seed
     k = key.decode('utf-8').lower() if isinstance(key, bytes) else key.lower()
+        
     if k in keys:
         keys[k] = True
     if k == 't':
@@ -575,7 +660,9 @@ def keyboard_down(key, x, y):
     if k == 'n':          # new random map
         random_seed = random.randint(1, 99999)
         generate_arena(random_seed)
-
+    #Niloy feature 2
+    if k=='j' and car['pos'][2]<=0:
+        car['vz']=12
 def keyboard_up(key, x, y):
     k = key.decode('utf-8').lower() if isinstance(key, bytes) else key.lower()
     if k in keys:
@@ -596,8 +683,10 @@ def special_up(key, x, y):
 def idle():
     update_car()
     update_ball()
+    update_sweeper()
     car_ball_collision()
     check_nitro_pickups()
+    manage_particles_drift()
     glutPostRedisplay()
 
 # ─── MAIN ──────────────────────────────────────────────────────────────────────
@@ -608,8 +697,9 @@ def main():
     glutInitWindowPosition(100, 50)
     glutCreateWindow(b"CAR SOCCER  |  WASD + SPACE-Nitro  |  T-Theme  |  N-New Map")
     glEnable(GL_DEPTH_TEST)
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    #Banned(Niloy fix)
+    #glEnable(GL_BLEND)
+    #glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     glutDisplayFunc(show_screen)
     glutKeyboardFunc(keyboard_down)
     glutKeyboardUpFunc(keyboard_up)
